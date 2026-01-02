@@ -18,23 +18,26 @@ import re
 import os
 
 # ==========================================
-# 0. 页面配置与字体处理
+# 0. 页面配置与字体处理 (已修改)
 # ==========================================
-st.set_page_config(page_title="文风指纹分析实验室", layout="wide")
+st.set_page_config(page_title="文风分析实验室", layout="wide")
 
-# 解决绘图中文乱码（自动下载字体）
 @st.cache_resource
 def get_font():
     font_path = "simhei.ttf"
+    
+    # 修改点：直接检查当前目录下是否有字体文件，不再自动下载
     if not os.path.exists(font_path):
-        os.system('wget -O simhei.ttf "https://www.wfonts.com/download/data/2014/06/01/simhei/simhei.ttf"')
+        st.error("⚠️ 严重错误：未检测到 'simhei.ttf' 字体文件！\n\n请确保您已将 'simhei.ttf' 文件上传到了 GitHub 仓库的根目录（即与 app.py 同一级）。")
+        return None
+        
     return fm.FontProperties(fname=font_path)
 
+# 加载字体
 my_font = get_font()
-plt.rcParams['font.family'] = my_font.get_name()
 
 # ==========================================
-# 1. 核心算法函数 (复用之前的逻辑)
+# 1. 核心算法函数 (保持不变)
 # ==========================================
 
 def basic_clean(text):
@@ -74,12 +77,11 @@ def get_style_tokens(text, blocklist):
 def generate_blocklist_from_files(uploaded_files):
     """从上传的文件对象中自动生成黑名单"""
     sample_text = ""
-    # 读取所有原著的前 50000 字
     for uploaded_file in uploaded_files:
         # 指针归零，防止二次读取为空
         uploaded_file.seek(0)
         content = uploaded_file.read().decode('utf-8', errors='ignore')
-        sample_text += basic_clean(content)[:50000]
+        sample_text += basic_clean(content)
     
     words = pseg.cut(sample_text)
     candidates = []
@@ -89,30 +91,30 @@ def generate_blocklist_from_files(uploaded_files):
         if len(w) > 1 and f in target_flags:
             candidates.append(w)
             
-    # 截取 Top 500 高频实体
+    # 截取 Top 1000 高频实体
     from collections import Counter
-    blocklist = set([w for w, c in Counter(candidates).most_common(500)])
+    blocklist = set([w for w, c in Counter(candidates).most_common(1000)])
     return blocklist
 
 # ==========================================
 # 2. 网站界面 UI
 # ==========================================
 
-st.title("🕵️‍♂️ 文风指纹分析实验室")
+st.title("文风指纹分析实验室")
 st.markdown("""
 这是一个基于 **FastText** 和 **Stylometry (文体学)** 的分析工具。
-上传某位作家的原著（如《盗墓笔记》），再输入你的同人文本，算法将自动剥离“内容”，仅根据“文风”计算相似度。
+上传某位作家的原著，再输入你的同人文本，算法将自动剥离“内容”，仅根据“文风”计算相似度。
 """)
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.header("Step 1: 建立基准")
-    st.info("请上传原著 TXT 文件（可多选）。系统将自动学习其文风并建立黑名单。")
+    st.info("请上传原著 TXT 文件（可多选）")
     uploaded_originals = st.file_uploader("上传原著 (支持 .txt)", type="txt", accept_multiple_files=True)
 
     st.header("Step 2: 输入测试文本")
-    fanfic_text = st.text_area("在此粘贴你的同人/测试文本：", height=200, placeholder="把要测试的小说片段粘贴在这里...")
+    fanfic_text = st.text_area("在此粘贴你的同人文本：", height=200, placeholder="把要测试的小说片段粘贴在这里...")
 
     start_btn = st.button("🚀 开始文风分析", type="primary")
 

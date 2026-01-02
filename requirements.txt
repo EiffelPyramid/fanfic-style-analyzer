@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+jieba
+gensim
+scikit-learn
+matplotlib
+openpyxl

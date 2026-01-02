@@ -18,7 +18,7 @@ import re
 import os
 
 # ==========================================
-# 0. 页面配置与字体处理 (已修改)
+# 0. 页面配置与字体处理
 # ==========================================
 st.set_page_config(page_title="文风分析实验室", layout="wide")
 
@@ -26,19 +26,63 @@ st.set_page_config(page_title="文风分析实验室", layout="wide")
 def get_font():
     font_path = "simhei.ttf"
     
-    # 修改点：直接检查当前目录下是否有字体文件，不再自动下载
+    # 1. 检查文件是否存在
     if not os.path.exists(font_path):
-        st.error("⚠️ 严重错误：未检测到 'simhei.ttf' 字体文件！\n\n请确保您已将 'simhei.ttf' 文件上传到了 GitHub 仓库的根目录（即与 app.py 同一级）。")
+        st.error(f"⚠️ 错误：未在根目录找到 '{font_path}' 文件。请检查 GitHub 仓库是否已上传。")
         return None
-        
-    return fm.FontProperties(fname=font_path)
+    
+    # 2. 检查文件大小 (防止上传了空文件或快捷方式)
+    file_size_mb = os.path.getsize(font_path) / (1024 * 1024)
+    if file_size_mb < 1: # 如果字体文件小于 1MB，肯定是不对的
+        st.error(f"⚠️ 严重错误：'{font_path}' 文件过小 ({file_size_mb:.2f} MB)。\n\n正常的 SimHei 字体应该在 10MB 左右。请检查您是否上传了损坏的文件或快捷方式。")
+        return None
+
+    try:
+        # 尝试加载字体属性
+        prop = fm.FontProperties(fname=font_path)
+        return prop
+    except Exception as e:
+        st.error(f"⚠️ 字体文件损坏，无法加载。错误信息: {e}")
+        return None
 
 # 加载字体
 my_font = get_font()
 
+# 如果字体有问题，停止运行，防止后续 Matplotlib 崩溃
+if my_font:
+    plt.rcParams['font.family'] = my_font.get_name()
+else:
+    st.stop()
+
 # ==========================================
-# 1. 核心算法函数 (保持不变)
+# 1. 核心工具函数：智能编码读取
 # ==========================================
+
+def read_content_safe(file_obj, limit=None):
+    """
+    智能读取文件内容：
+    1. 尝试 UTF-8
+    2. 失败尝试 GBK (解决 Windows txt 乱码问题)
+    3. 还是失败则忽略错误
+    """
+    try:
+        # 指针归零
+        file_obj.seek(0)
+        content_bytes = file_obj.read()
+        
+        # 方案 A: 尝试 UTF-8
+        text = content_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        try:
+            # 方案 B: 尝试 GBK
+            text = content_bytes.decode('gbk')
+        except UnicodeDecodeError:
+            # 方案 C: 强行读取，忽略乱码
+            text = content_bytes.decode('utf-8', errors='ignore')
+            
+    if limit:
+        return text[:limit]
+    return text
 
 def basic_clean(text):
     """基础清洗：去章节头、统一标点"""
@@ -100,7 +144,7 @@ def generate_blocklist_from_files(uploaded_files):
 # 2. 网站界面 UI
 # ==========================================
 
-st.title("文风指纹分析实验室")
+st.title("文风分析实验室")
 st.markdown("""
 这是一个基于 **FastText** 和 **Stylometry (文体学)** 的分析工具。
 上传某位作家的原著，再输入你的同人文本，算法将自动剥离“内容”，仅根据“文风”计算相似度。

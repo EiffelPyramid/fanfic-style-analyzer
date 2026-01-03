@@ -17,23 +17,24 @@ import numpy as np
 import re
 import os
 import streamlit.components.v1 as components
+
+# 引入 LIME 库
 from lime.lime_text import LimeTextExplainer
 
 # ==========================================
-# 0. 页面配置与字体处理 (安全版)
+# 0. 页面配置与字体安全检查
 # ==========================================
-st.set_page_config(page_title="文风指纹分析实验室 (Pro)", layout="wide")
+st.set_page_config(page_title="文风指纹分析实验室 (终极版)", layout="wide")
 
 @st.cache_resource
 def get_font_prop():
     font_path = "simhei.ttf"
-    if not os.path.exists(font_path):
-        return None
+    # 严格检查字体文件
+    if not os.path.exists(font_path): return None
     try:
         if os.path.getsize(font_path) / (1024 * 1024) < 1: return None
         return fm.FontProperties(fname=font_path)
-    except:
-        return None
+    except: return None
 
 my_font_prop = get_font_prop()
 
@@ -42,6 +43,7 @@ my_font_prop = get_font_prop()
 # ==========================================
 
 def read_content_safe(file_obj, limit=None):
+    """安全读取文件内容 (兼容 UTF-8 和 GBK)"""
     try:
         file_obj.seek(0)
         content_bytes = file_obj.read()
@@ -55,6 +57,7 @@ def read_content_safe(file_obj, limit=None):
     return text
 
 def basic_clean(text):
+    """基础清洗：去章节头、统一标点"""
     if not isinstance(text, str): return ""
     text = re.sub(r'第.+?章.*', '', text)
     text = re.sub(r'Chapter.*', '', text)
@@ -65,6 +68,7 @@ def basic_clean(text):
     return text
 
 def smart_chunking(text, min_length=300):
+    """智能分段"""
     lines = text.split("\n")
     final_chunks = []
     current_chunk = ""
@@ -80,16 +84,17 @@ def smart_chunking(text, min_length=300):
     return final_chunks
 
 def get_style_tokens(text, blocklist):
-    # 核心：保留不在黑名单里的词
+    """文风分词：基于黑名单过滤内容词"""
     text = basic_clean(text)
     words = jieba.lcut(text)
     return [w for w in words if w not in blocklist and not w.isspace()]
 
 def generate_blocklist_from_files(uploaded_files):
+    """自动生成内容词黑名单"""
     sample_text = ""
     for uploaded_file in uploaded_files:
         content = read_content_safe(uploaded_file)
-        sample_text += basic_clean(content)
+        sample_text += basic_clean(content)[:50000]
     words = pseg.cut(sample_text)
     candidates = []
     target_flags = {'nr', 'ns', 'nz', 'nt', 'per', 'loc'}
@@ -104,170 +109,211 @@ def generate_blocklist_from_files(uploaded_files):
 # 2. 网站界面 UI
 # ==========================================
 
-st.title("🕵️‍♂️ 文风分析实验室")
+st.title("🕵️‍♂️ 文风指纹分析实验室 (Pro Plus)")
 st.markdown("""
-上传某位作家的原著，再输入你的同人文本，算法将通过虚词、句式等判断同人文本的还原度，并高亮显示文中哪些词句最具有原著神韵。
+本系统通过 **FastText** 向量化与 **LIME** 可解释性模型，对文本进行双重分析：
+1.  **文风指纹比对**：剥离剧情内容，仅通过虚词、句式等“指纹”计算整体相似度。
+2.  **深度归因解释**：高亮显示文本中哪些词句对“像原著”贡献最大。
 """)
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.header("Step 1: 建立基准")
-    st.info("请上传原著 TXT 文件（可多选）")
     uploaded_originals = st.file_uploader("上传原著 (支持 .txt)", type="txt", accept_multiple_files=True)
-
+    
     st.header("Step 2: 输入测试文本")
-    fanfic_text = st.text_area("在此粘贴你的同人文本：", height=200, placeholder="建议粘贴 500 字以上的段落...")
+    fanfic_text = st.text_area("在此粘贴同人/测试文本：", height=250, placeholder="建议粘贴 500 字以上的段落...")
 
-    start_btn = st.button("🚀 开始文风分析", type="primary")
+    # 这里的按钮一旦点击，就会触发下面的所有逻辑
+    start_btn = st.button("🚀 一键开启全流程分析", type="primary")
 
 # ==========================================
-# 3. 主逻辑控制器
+# 3. 主逻辑控制器 (合并了基础与进阶)
 # ==========================================
 
 if start_btn:
-    if not uploaded_originals or not fanfic_text.strip():
-        st.error("请确保已上传原著并输入了测试文本。")
+    if not uploaded_originals:
+        st.error("❌ 请先上传原著文件！")
+    elif not fanfic_text.strip():
+        st.error("❌ 请输入测试文本！")
     else:
         with col2:
-            status = st.status("正在启动文风解析引擎...", expanded=True)
-            
-            # --- A: 预处理 ---
-            status.write("📖 生成实体停用词表...")
-            blocklist = generate_blocklist_from_files(uploaded_originals)
-            
-            status.write("✂️ 切分与清洗...")
-            original_docs = []
-            for u_file in uploaded_originals:
-                content = read_content_safe(u_file)
-                chunks = smart_chunking(content)
-                for chunk in chunks:
-                    tokens = get_style_tokens(chunk, blocklist)
-                    if len(tokens) > 50: original_docs.append(tokens)
-            
-            # 对同人文本，为了LIME分析，我们最好不要切得太碎，取前 1000 字做演示
-            preview_text = fanfic_text[:2000]
-            test_tokens = get_style_tokens(preview_text, blocklist)
-            
-            if len(test_tokens) < 20:
-                st.error("测试文本有效词汇不足，无法分析。")
-                st.stop()
+            # === 阶段一：基础模型构建与计算 ===
+            with st.status("正在进行全流程分析...", expanded=True) as status:
+                
+                # 1. 预处理
+                status.write("📖 正在扫描原著并构建去噪黑名单...")
+                blocklist = generate_blocklist_from_files(uploaded_originals)
+                status.write(f"✅ 已屏蔽 {len(blocklist)} 个高频专有名词（如：{list(blocklist)[:3]}...）")
+                
+                # 2. 数据切分
+                status.write("✂️ 正在进行文本切片与清洗...")
+                original_docs = []
+                for u_file in uploaded_originals:
+                    content = read_content_safe(u_file)
+                    chunks = smart_chunking(content)
+                    for chunk in chunks:
+                        tokens = get_style_tokens(chunk, blocklist)
+                        if len(tokens) > 50: original_docs.append(tokens)
+                
+                # 处理同人文本
+                preview_text = fanfic_text[:2000] # 取前2000字做深度分析
+                test_tokens = get_style_tokens(preview_text, blocklist)
+                
+                if len(test_tokens) < 20:
+                    status.update(label="分析失败：有效词汇不足", state="error")
+                    st.stop()
 
-            # --- B: 训练 FastText ---
-            status.write("🧠 训练 FastText 向量空间...")
-            # 训练时把测试文本也放进去，建立共享语境
-            all_docs = original_docs + [test_tokens]
-            model = FastText(sentences=all_docs, vector_size=100, window=5, min_count=1, epochs=20, seed=42)
-            
-            # --- C: 计算基准向量 ---
-            def get_vec(tokens):
-                vecs = [model.wv[w] for w in tokens if w in model.wv]
-                return np.mean(vecs, axis=0) if vecs else np.zeros(100)
+                # 3. 训练模型
+                status.write("🧠 正在训练 FastText 文风向量空间...")
+                all_docs = original_docs + [test_tokens]
+                model = FastText(sentences=all_docs, vector_size=100, window=5, min_count=1, epochs=20, seed=42)
+                
+                # 4. 计算相似度
+                def get_vec(tokens):
+                    vecs = [model.wv[w] for w in tokens if w in model.wv]
+                    return np.mean(vecs, axis=0) if vecs else np.zeros(100)
 
-            orig_vecs = np.array([get_vec(d) for d in original_docs])
-            gold_standard = np.mean(orig_vecs, axis=0) # 原著质心
-            
-            # 计算同人分数
-            test_vec = get_vec(test_tokens)
-            similarity = cosine_similarity([test_vec], [gold_standard])[0][0]
-            final_score = similarity * 100
-            
-            status.update(label="基础分析完成！", state="complete", expanded=False)
+                orig_vecs = np.array([get_vec(d) for d in original_docs])
+                gold_standard = np.mean(orig_vecs, axis=0) # 原著质心
+                test_vec = get_vec(test_tokens)
+                
+                similarity = cosine_similarity([test_vec], [gold_standard])[0][0]
+                final_score = similarity * 100
+                
+                status.write("✅ 基础分析完成！")
+                status.update(label="第一阶段分析完成，正在进行 LIME 深度归因...", state="running", expanded=True)
 
-            # --- D: 结果展示 ---
-            st.divider()
-            st.subheader("📊 分析报告")
-            
-            m1, m2 = st.columns([1, 1])
-            with m1:
-                st.metric("文风相似度", f"{final_score:.2f}%")
-                if final_score > 85: st.success("判定：极度贴合原著")
-                elif final_score > 70: st.info("判定：风格较为接近")
-                else: st.warning("判定：个人风格强烈")
-            
-            with m2:
-                # 简单的 PCA 可视化
-                if len(orig_vecs) > 0:
-                    try:
-                        pca = PCA(n_components=2)
-                        X_all = np.vstack([orig_vecs, [test_vec]])
-                        X_pca = pca.fit_transform(X_all)
-                        fig, ax = plt.subplots(figsize=(5, 3))
-                        ax.scatter(X_pca[:-1, 0], X_pca[:-1, 1], c='lightgray', s=10, label='Original')
-                        center = pca.transform([gold_standard])
-                        ax.scatter(center[:,0], center[:,1], c='red', marker='*', s=150, label='Center')
-                        ax.scatter(X_pca[-1, 0], X_pca[-1, 1], c='blue', marker='X', s=100, label='Fanfic')
-                        ax.axis('off')
-                        st.pyplot(fig)
-                    except: pass
-
-            # ==========================================
-            # 4. LIME 可解释性分析 (The "Great Idea")
-            # ==========================================
-            st.divider()
-            st.subheader("🔍 深度归因：为什么像？")
-            st.info("LIME 算法将随机遮蔽文本中的词句，观察相似度变化，从而找出对文风贡献最大的片段。")
-            
-            if st.button("开始 LIME 深度计算 (耗时较长)", type="primary"):
-                with st.spinner("正在进行数千次扰动采样，请稍候..."):
+                # === 阶段二：结果展示 (基础部分) ===
+                # 这里就是你希望“保留前一条输出”的地方，我把它放回来了
+                
+                st.divider()
+                st.subheader("📊 基础分析报告")
+                
+                res_c1, res_c2 = st.columns([1, 1])
+                
+                with res_c1:
+                    st.metric(label="整体文风相似度", value=f"{final_score:.2f}%")
                     
-                    # 1. 定义 LIME 需要的预测函数
-                    # 输入：文本列表 [text1, text2...]
-                    # 输出：概率矩阵 [[prob_not_sim, prob_sim], ...]
-                    def predict_proba(texts):
-                        results = []
-                        for text in texts:
-                            # 清洗并分词 (使用同样的逻辑)
-                            t_tokens = get_style_tokens(text, blocklist)
-                            if not t_tokens:
-                                results.append([1.0, 0.0]) # 空文本完全不像
-                                continue
+                    # 详细评语逻辑 (恢复你喜欢的文字说明)
+                    if final_score > 90:
+                        st.success("""
+                        **判定：极度相似（Tier S）**
+                        这段文本在虚词使用、句式节奏和用词习惯上与原著高度一致。
+                        机器认为这极有可能是原作者本人或极其资深的模仿者所写。
+                        """)
+                    elif final_score > 75:
+                        st.info("""
+                        **判定：风格接近（Tier A）**
+                        文本抓住了原著的语感特征，但在部分细节处理上仍有个人色彩。
+                        这是一个非常优秀的同人创作，读起来很有“那味儿”。
+                        """)
+                    elif final_score > 60:
+                        st.warning("""
+                        **判定：略有差异（Tier B）**
+                        虽然属于同人范畴，但作者保留了强烈的个人叙述风格。
+                        文风与原著有明显区别（可能是OOC或AU设定导致）。
+                        """)
+                    else:
+                        st.error("""
+                        **判定：差异显著（Tier C）**
+                        机器难以识别出这是基于原著的仿写。这可能是一篇完全架空的现代文，
+                        或者作者的写作习惯与原著大相径庭。
+                        """)
+
+                with res_c2:
+                    st.write("**向量空间投影 (PCA)**")
+                    if len(orig_vecs) > 0:
+                        try:
+                            pca = PCA(n_components=2)
+                            X_all = np.vstack([orig_vecs, [test_vec]])
+                            X_pca = pca.fit_transform(X_all)
                             
-                            # 获取向量
-                            vec = get_vec(t_tokens)
-                            # 计算相似度 (0-1)
-                            sim = cosine_similarity([vec], [gold_standard])[0][0]
-                            # 转换为 [不相似概率, 相似概率]
-                            # 为了让 LIME 效果更明显，我们可以对 sim 进行缩放，但原始值也行
-                            results.append([1 - sim, sim])
-                        return np.array(results)
+                            fig, ax = plt.subplots(figsize=(6, 4))
+                            # 原著点（背景）
+                            ax.scatter(X_pca[:-1, 0], X_pca[:-1, 1], c='lightgray', s=15, alpha=0.6, label='原著切片')
+                            # 原著中心
+                            center = pca.transform([gold_standard])
+                            ax.scatter(center[:,0], center[:,1], c='red', marker='*', s=200, label='原著基准')
+                            # 测试文本点
+                            ax.scatter(X_pca[-1, 0], X_pca[-1, 1], c='blue', s=100, marker='X', edgecolors='white', label='你的文本')
+                            
+                            # 字体安全设置
+                            if my_font_prop:
+                                ax.legend(prop=my_font_prop)
+                                ax.set_title("文风落点分布图", fontproperties=my_font_prop)
+                            else:
+                                ax.legend()
+                                ax.set_title("Style Distribution")
+                                
+                            ax.axis('off') # 去掉坐标轴更美观
+                            st.pyplot(fig)
+                        except Exception as e:
+                            st.error(f"绘图错误: {e}")
 
-                    # 2. 初始化解释器
-                    # class_names=['Other', 'Original']
-                    explainer = LimeTextExplainer(class_names=['差异', '原著风'])
+                # === 阶段三：LIME 进阶分析 (自动继续执行) ===
+                st.divider()
+                st.subheader("🔍 进阶分析：LIME 可解释性归因")
+                st.info("AI 正在通过随机遮蔽实验，寻找文中对“原著感”贡献最大的句子... (这可能需要十几秒)")
+                
+                # 进度条
+                lime_progress = st.progress(0)
+                
+                # 1. 定义 LIME 预测函数 (桥接 FastText)
+                def predict_proba(texts):
+                    results = []
+                    # 模拟进度：这只是个简单的 trick，因为 predict_proba 会被调用几百次
+                    # 实际很难精确控制进度条，这里只能显示“正在计算”
+                    for text in texts:
+                        t_tokens = get_style_tokens(text, blocklist)
+                        if not t_tokens:
+                            results.append([1.0, 0.0])
+                            continue
+                        vec = get_vec(t_tokens)
+                        sim = cosine_similarity([vec], [gold_standard])[0][0]
+                        # 放大差异以便 LIME 更好捕捉：(sim^3 增加对比度)
+                        sim_scaled = sim ** 3 
+                        results.append([1 - sim_scaled, sim_scaled])
+                    return np.array(results)
 
-                    # 3. 这里的关键是：LIME 默认按空格分词。
-                    # 为了支持中文，我们先把中文文本变成 "词 词 词" 的空格分隔形式
-                    # 这样 LIME 就能处理“词”级别的贡献度了
-                    seg_list = jieba.cut(preview_text)
-                    spaced_text = " ".join(seg_list)
+                # 2. 初始化解释器
+                explainer = LimeTextExplainer(class_names=['差异', '原著风'])
 
-                    # 4. 生成解释
-                    # num_features=10: 显示前10个最重要的特征
-                    # num_samples=200: 采样次数，越大越准但越慢。云端建议 200-500。
+                # 3. 中文分词适配 (关键步骤)
+                # LIME 需要空格分隔的字符串
+                seg_list = jieba.cut(preview_text)
+                spaced_text = " ".join(seg_list)
+
+                # 4. 生成解释 (减少采样数以加快速度)
+                # num_samples=200 足够演示用
+                try:
                     exp = explainer.explain_instance(
                         spaced_text, 
                         predict_proba, 
                         num_features=10, 
                         num_samples=200 
                     )
-
-                    # 5. 展示结果 HTML
-                    # LIME 会生成一个非常漂亮的 HTML 可视化，包含高亮文本
-                    st.write("### 贡献度热力图")
-                    components.html(exp.as_html(), height=800, scrolling=True)
+                    lime_progress.progress(100)
                     
-                    # 6. 提取具体关键词
-                    st.write("### 🏆 最具“原著感”的特征词")
-                    st.write("这些词的出现显著提升了文本与原著的相似度（不仅仅是名词，更多是语气词、动词）：")
+                    # 5. 展示结果
+                    st.write("### 🔥 文本热力图")
+                    st.caption("颜色越红/深橙色，代表该词句越具有“原著神韵”；蓝色则代表与原著风格不符。")
+                    components.html(exp.as_html(), height=600, scrolling=True)
                     
+                    # 6. 提取关键词表
+                    st.write("### 🏆 核心特征词")
                     top_features = exp.as_list()
-                    # 过滤出正向贡献的词
-                    positive_features = [f for f in top_features if f[1] > 0]
-                    
-                    if positive_features:
-                        feat_df = pd.DataFrame(positive_features, columns=["特征词", "贡献度"])
-                        st.dataframe(feat_df, use_container_width=True)
+                    # 只要正向特征
+                    pos_feats = [f for f in top_features if f[1] > 0]
+                    if pos_feats:
+                        df_feats = pd.DataFrame(pos_feats, columns=["特征词", "原著感贡献度"])
+                        st.dataframe(df_feats, use_container_width=True)
                     else:
-                        st.write("未检测到显著的正向特征。")
+                        st.write("未检测到显著的正向特征词。")
+                        
+                except Exception as e:
+                    st.error(f"LIME 分析运行时出现错误: {e}")
+                
+                status.update(label="全流程分析已完成！", state="complete", expanded=False)
 

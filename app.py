@@ -66,16 +66,34 @@ def basic_clean(text):
         text = text.replace(eng_punc, chi_punc)
     return text
 
-def split_sentences_custom(text):
+def split_sentences_custom(text, min_len=30):
     """
-    自定义分句函数：保留标点符号
+    自定义分句函数：
+    1. 凑够 min_len (30字) 才断句（针对逗号）。
+    2. 遇到强结束符（句号/感叹号/问号/换行）必须立刻断句，不管长度够不够。
     """
-    sents = re.split(r'([,，。！？\n]+)', text)
-    new_sents = []
-    for i in range(0, len(sents) - 1, 2):
-        new_sents.append(sents[i] + sents[i+1])
-    if sents[-1]: new_sents.append(sents[-1])
-    return [s for s in new_sents if s.strip()]
+    # 切分：保留标点
+    raw_sents = re.split(r'([,，。！？\n]+)', text)
+    merged_sents = []
+    buffer = ""
+    
+    strong_terminators = {'。', '！', '？', '\n', '!', '?'}
+    
+    for i in range(0, len(raw_sents) - 1, 2):
+        content = raw_sents[i]
+        punct = raw_sents[i+1]
+        
+        segment = content + punct
+        buffer += segment
+        
+        is_strong_end = any(c in punct for c in strong_terminators)
+        if len(buffer) >= min_len or is_strong_end:
+            merged_sents.append(buffer)
+            buffer = ""
+    if raw_sents[-1]: buffer += raw_sents[-1]
+    if buffer: merged_sents.append(buffer)
+    
+    return [s for s in merged_sents if s.strip()]
 
 def smart_chunking(text, min_length=300):
     """智能切分长文本用于训练"""
@@ -242,7 +260,6 @@ if start_btn:
                     *评价：这是极致的OOC，还是披着同人皮的原创大作？这很难评，祝您开心就好。*
                     """)
             
-            # 【修复点 1】这里修改为 res_c2，修复了 NameError
             with res_c2:
                 st.write("### 向量空间投影")
                 if len(orig_vecs) > 0:
@@ -287,7 +304,6 @@ if start_btn:
                 results = []
                 for str_indices in str_indices_list:
                     indices = [int(i) for i in str_indices.split()]
-                    # 拼接回文本
                     reconstructed_text = "".join([sentences_list[i] for i in indices])
                     
                     t_tokens = get_style_tokens(reconstructed_text, blocklist)
@@ -305,7 +321,6 @@ if start_btn:
             try:
                 explainer = LimeTextExplainer(class_names=['差异', '原著风'])
                 
-                # 减少采样数以提高速度
                 exp = explainer.explain_instance(
                     wrapped_text, 
                     sentence_predict_proba, 
@@ -316,10 +331,18 @@ if start_btn:
                 weights = exp.as_list()
                 weight_map = {int(k): v for k, v in weights}
                 
-                all_indices = sorted(weight_map.keys(), key=lambda k: abs(weight_map[k]), reverse=True)
-                top_indices = set(all_indices[:15]) 
+                num_sentences = len(sentences_list)
+                top_k_count = max(int(num_sentences * 0.1), 1)
+                
+                sorted_by_val = sorted(weight_map.items(), key=lambda x: x[1], reverse=True)
+                top_pos_indices = set(k for k, v in sorted_by_val[:top_k_count] if v > 0)
+                
+                sorted_by_val_asc = sorted(weight_map.items(), key=lambda x: x[1])
+                top_neg_indices = set(k for k, v in sorted_by_val_asc[:top_k_count] if v < 0)
+                
+                highlight_indices = top_pos_indices.union(top_neg_indices)
 
-                st.write("### 📜 全文文风热力图")
+                st.write(f"### 📜 全文文风热力图 ")
                 st.caption("红色 = 极具原著神韵的短句；蓝色 = 明显偏离原著风格的短句；无底色 = 文风特征不明显")
                 
                 html_parts = []

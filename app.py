@@ -219,7 +219,7 @@ if start_btn:
 
             orig_vecs = np.array([get_vec(d) for d in original_docs])
             gold_standard = np.mean(orig_vecs, axis=0) # 原著质心
-            test_vec = get_vec(test_tokens)
+            test_vecs = get_vec(test_tokens)
             
             similarity = cosine_similarity([test_vec], [gold_standard])[0][0]
             final_score = similarity * 100
@@ -262,7 +262,7 @@ if start_btn:
                 if len(orig_vecs) > 0:
                     try:
                         pca = PCA(n_components=2)
-                        X_all = np.vstack([orig_vecs, [test_vec]])
+                        X_all = np.vstack([orig_vecs, [test_vecs]])
                         X_pca = pca.fit_transform(X_all)
                         n_orig = len(orig_vecs)
 

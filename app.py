@@ -257,7 +257,7 @@ if start_btn:
                     *评价：这是极致的OOC，还是披着同人皮的原创大作？这很难评，祝您开心就好。*
                     """)
             
-            with metric_col2:
+            with res_col2:
                 st.write("### 向量空间投影")
                 if len(orig_vecs) > 0:
                     try:

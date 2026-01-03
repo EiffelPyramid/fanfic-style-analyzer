@@ -77,9 +77,10 @@ def basic_clean(text, remove_quotes=True):
 
 def split_sentences_custom(text, min_len=30):
     """
-    自定义分句函数：
+    自定义分句函数（智能版）：
     1. 凑够 min_len (30字) 才断句（针对逗号）。
     2. 遇到强结束符（句号/感叹号/问号/换行）必须立刻断句。
+    3. 防止文末的闭引号被切成单独的一句话。
     """
     # 切分：保留标点
     raw_sents = re.split(r'([,，。！？\n]+)', text)
@@ -100,9 +101,10 @@ def split_sentences_custom(text, min_len=30):
             merged_sents.append(buffer)
             buffer = ""
             
+    # 处理最后的尾巴
     if raw_sents[-1]: buffer += raw_sents[-1]
     if buffer:
-        if re.match(r'^[”"’\s]+$', buffer) and merged_sents:
+        if re.match(r'^[”"’\s,，。！？]+$', buffer) and merged_sents:
             merged_sents[-1] += buffer
         else:
             merged_sents.append(buffer)
@@ -127,6 +129,7 @@ def smart_chunking(text, min_length=300):
 
 def get_style_tokens(text, blocklist):
     """文风分词：基于停用词表过滤"""
+    # 强制去除引号进行分析，保证准确度
     text = basic_clean(text, remove_quotes=True)
     words = jieba.lcut(text)
     return [w for w in words if w not in blocklist and not w.isspace()]
@@ -180,7 +183,7 @@ with col1:
     uploaded_originals = st.file_uploader("上传原著 (支持 .txt)", type="txt", accept_multiple_files=True)
 
     st.header("Step 2: 输入测试文本")
-    # 【修改点】高度从 200 改为 400
+    # 【修改点】高度调整为 400
     fanfic_text = st.text_area("在此粘贴你的同人文本：", height=400, placeholder="建议粘贴 500 字以上的文本...")
 
     start_btn = st.button("🚀 开始文风分析", type="primary")
@@ -215,6 +218,7 @@ if start_btn:
                     if len(tokens) > 50: original_docs.append(tokens)
             
             # 3. 处理同人文本
+            # 保留引号用于显示
             preview_text = basic_clean(fanfic_text, remove_quotes=False) 
             test_tokens = get_style_tokens(preview_text, blocklist)
             
@@ -248,17 +252,16 @@ if start_btn:
             res_c1, res_c2 = st.columns([1, 1])
             
             with res_c1:
-                st.subheader("整体文风相似度")
-                st.metric(label="similar_score", value=f"{final_score:.2f}%", label_visibility="collapsed")
+                st.metric(label="整体文风相似度", value=f"{final_score:.2f}%")
                 
                 if final_score > 90:
                     st.success("""
-                    **判定：疑似作者小号（Tier S）** 😭 **救命！这是哪位神仙太太下凡？** 这简直就是原著！若不是作者的小号，建议严查是否偷了存稿硬盘。  
+                    **判定：疑似作者小号（Tier S）** 😭 **救命！这是哪位神仙太太下凡？** 这简直就是原著！如果不是小号，建议严查太太是否偷了存稿硬盘。  
                     *评价：绝赞好粮，垂直入坑，请受我一拜！*
                     """)
                 elif final_score > 75:
                     st.info("""
-                    **判定：美味（Tier A）** 😋 **好一口美味的粮！** 虽然在细节处能看出太太自己的行文习惯，但整体还原度极高。  
+                    **判定：美味（Tier A）** 😋 **好一口美味的粮！** 虽然能看出太太自己的行文习惯，但整体还原度很高呢。  
                     *评价：是不可多得的优质粮，这就加入书架！*
                     """)
                 elif final_score > 60:
@@ -269,11 +272,11 @@ if start_btn:
                 else:
                     st.error("""
                     **判定：OOC预警 / 纯属原创（Tier C）** 😨 **确定这是同人？** 这独特的文风已经完全脱离了原著的引力圈，如果不看角色名，机器还以为误入了隔壁片场。  
-                    *评价：这是极致的OOC，还是披着同人皮的原创大作？这很难评，祝您开心就好。*
+                    *评价：这是极致的OOC，还是披着同人皮的原创大作？这很难评，您开心就好。*
                     """)
             
             with res_c2:
-                st.subheader("向量空间投影")
+                st.write("### 向量空间投影")
                 if len(orig_vecs) > 0:
                     try:
                         pca = PCA(n_components=2)
@@ -306,9 +309,8 @@ if start_btn:
             # === 阶段三：句子级 LIME 进阶分析 ===
             st.divider()
             st.subheader("🔍 深度归因：哪些句子最像原著？")
-            st.info("正在逐句分析文风贡献度（红色=加分项，蓝色=减分项）...")
+            st.info("AI 正在逐句分析文风贡献度（红色=加分项，蓝色=减分项）...")
             
-            # 1. 切分句子
             sentences_list = split_sentences_custom(preview_text, min_len=30)
             wrapped_text = " ".join([str(i) for i in range(len(sentences_list))])
             
@@ -342,7 +344,6 @@ if start_btn:
                 weights = exp.as_list()
                 weight_map = {int(k): v for k, v in weights}
                 
-                # --- 计算 10% 阈值 ---
                 num_sentences = len(sentences_list)
                 top_k_count = max(int(num_sentences * 0.1), 1) 
                 
@@ -355,12 +356,15 @@ if start_btn:
                 highlight_indices = top_pos_indices.union(top_neg_indices)
 
                 st.write(f"### 📜 全文文风热力图")
-                st.caption("红色 = 极具原著神韵的短句；蓝色 = 明显偏离原著风格的短句；无底色 = 文风特征不明显")
+                st.caption("红色 = 极具“原著味”的短句；蓝色 = 明显偏离原著风格的短句；无底色 = 文风特征不明显")
                 
                 html_parts = []
                 for idx, sentence in enumerate(sentences_list):
                     weight = weight_map.get(idx, 0)
-                    if re.match(r'^[“"”\s]+$', sentence):
+                    
+                    is_pure_punct = re.match(r'^[“"”\s,，。！？\n]+$', sentence)
+                    
+                    if is_pure_punct:
                         html_parts.append(f"<span>{sentence}</span>")
                     elif idx in highlight_indices:
                         html_parts.append(get_color_html(sentence, weight))

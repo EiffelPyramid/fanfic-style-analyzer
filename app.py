@@ -55,13 +55,21 @@ def read_content_safe(file_obj, limit=None):
     if limit: return text[:limit]
     return text
 
-def basic_clean(text):
-    """基础清洗"""
+def basic_clean(text, remove_quotes=True):
+    """
+    基础清洗：
+    remove_quotes=True: 用于算法分析（去掉引号，减少干扰）
+    remove_quotes=False: 用于页面展示（保留引号，保持原貌）
+    """
     if not isinstance(text, str): return ""
     text = re.sub(r'第.+?章.*', '', text)
     text = re.sub(r'Chapter.*', '', text)
     text = re.sub(r'\[\d+\]|[\u2460-\u24FF]', '', text)
-    text = re.sub(r'["“”]', '', text)
+    
+    # 根据开关决定是否去引号
+    if remove_quotes:
+        text = re.sub(r'["“”]', '', text)
+        
     punctuation_map = {',': '，', '!': '！', '?': '？', '(': '（', ')': '）', ':': '：', ';': '；'}
     for eng_punc, chi_punc in punctuation_map.items():
         text = text.replace(eng_punc, chi_punc)
@@ -114,7 +122,7 @@ def smart_chunking(text, min_length=300):
 
 def get_style_tokens(text, blocklist):
     """文风分词：基于停用词表过滤"""
-    text = basic_clean(text)
+    text = basic_clean(text, remove_quotes=True)
     words = jieba.lcut(text)
     return [w for w in words if w not in blocklist and not w.isspace()]
 
@@ -123,7 +131,7 @@ def generate_blocklist_from_files(uploaded_files):
     sample_text = ""
     for uploaded_file in uploaded_files:
         content = read_content_safe(uploaded_file)
-        sample_text += basic_clean(content)[:200000]
+        sample_text += basic_clean(content, remove_quotes=True)[:200000]
     words = pseg.cut(sample_text)
     candidates = []
     target_flags = {'nr', 'ns', 'nz', 'nt', 'per', 'loc'}
@@ -201,7 +209,7 @@ if start_btn:
                     if len(tokens) > 50: original_docs.append(tokens)
             
             # 3. 处理同人文本
-            preview_text = fanfic_text # [:3000] 
+            preview_text = basic_clean(fanfic_text, remove_quotes=False) # [:3000] 
             test_tokens = get_style_tokens(preview_text, blocklist)
             
             if len(test_tokens) < 10:
@@ -284,7 +292,7 @@ if start_btn:
                             ax.set_title("文风落点分布", fontproperties=my_font_prop)
                         else:
                             ax.legend(frameon=False)
-                            ax.set_title("Style Distribution (Font Missing)")
+                            ax.set_title("Style Distribution")
 
                         ax.axis('off')
                         st.pyplot(fig)
@@ -298,7 +306,7 @@ if start_btn:
             st.info("正在逐句分析文风贡献度（红色=加分项，蓝色=减分项）...")
             
             # 1. 切分句子
-            sentences_list = split_sentences_custom(preview_text)
+            sentences_list = split_sentences_custom(preview_text, min_len=30)
             wrapped_text = " ".join([str(i) for i in range(len(sentences_list))])
             
             def sentence_predict_proba(str_indices_list):
@@ -314,7 +322,6 @@ if start_btn:
                     
                     vec = get_vec(t_tokens)
                     sim = cosine_similarity([vec], [gold_standard])[0][0]
-                    
                     sim_scaled = sim ** 3
                     results.append([1 - sim_scaled, sim_scaled])
                 return np.array(results)

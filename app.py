@@ -248,7 +248,8 @@ if start_btn:
             res_c1, res_c2 = st.columns([1, 1])
             
             with res_c1:
-                st.metric(label="整体文风相似度", value=f"{final_score:.2f}%")
+                st.subheader("整体文风相似度")
+                st.metric(label="similar_score", value=f"{final_score:.2f}%", label_visibility="collapsed")
                 
                 if final_score > 90:
                     st.success("""
@@ -272,7 +273,7 @@ if start_btn:
                     """)
             
             with res_c2:
-                st.write("### 向量空间投影")
+                st.subheader("向量空间投影")
                 if len(orig_vecs) > 0:
                     try:
                         pca = PCA(n_components=2)

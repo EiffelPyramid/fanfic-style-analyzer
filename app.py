@@ -348,24 +348,22 @@ if start_btn:
                 html_parts = []
                 for idx, sentence in enumerate(sentences_list):
                     weight = weight_map.get(idx, 0)
-                    if idx in top_indices:
+                    if idx in highlight_indices:
                         html_parts.append(get_color_html(sentence, weight))
                     else:
                         html_parts.append(f"<span>{sentence}</span>")
                 
-                full_html = f"<div style='line-height: 1.8; font-family: serif; padding: 15px; border: 1px solid #ddd; border-radius: 5px;'>{''.join(html_parts)}</div>"
+                full_html = f"<div style='line-height: 1.8; font-family: serif; padding: 15px; border: 1px solid #ddd; border-radius: 5px; height: 400px; overflow-y: auto;'>{''.join(html_parts)}</div>"
                 st.markdown(full_html, unsafe_allow_html=True)
                 
                 st.write("### 🏆 最具“原著味”的短句 TOP 5")
-                sorted_indices = sorted(weight_map.keys(), key=lambda k: weight_map[k], reverse=True)
-                
                 top_sentences_data = []
-                for idx in sorted_indices[:5]:
-                    if weight_map[idx] > 0: 
+                for idx, score in sorted_by_val[:5]:
+                    if score > 0:
                         top_sentences_data.append({
                             "排名": len(top_sentences_data) + 1,
                             "句子内容": sentences_list[idx],
-                            "贡献度得分": f"{weight_map[idx]:.4f}"
+                            "贡献度得分": f"{score:.4f}"
                         })
                 
                 if top_sentences_data:

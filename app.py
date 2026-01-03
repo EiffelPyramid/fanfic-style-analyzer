@@ -221,7 +221,7 @@ if start_btn:
             gold_standard = np.mean(orig_vecs, axis=0) # 原著质心
             test_vecs = get_vec(test_tokens)
             
-            similarity = cosine_similarity([test_vec], [gold_standard])[0][0]
+            similarity = cosine_similarity([test_vecs], [gold_standard])[0][0]
             final_score = similarity * 100
             
             status.write("✅ 基础分析完成，准备进行句子归因...")

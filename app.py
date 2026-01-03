@@ -79,7 +79,7 @@ def split_sentences_custom(text, min_len=30):
     """
     自定义分句函数：
     1. 凑够 min_len (30字) 才断句（针对逗号）。
-    2. 遇到强结束符（句号/感叹号/问号/换行）必须立刻断句，不管长度够不够。
+    2. 遇到强结束符（句号/感叹号/问号/换行）必须立刻断句。
     """
     # 切分：保留标点
     raw_sents = re.split(r'([,，。！？\n]+)', text)
@@ -99,8 +99,13 @@ def split_sentences_custom(text, min_len=30):
         if len(buffer) >= min_len or is_strong_end:
             merged_sents.append(buffer)
             buffer = ""
+            
     if raw_sents[-1]: buffer += raw_sents[-1]
-    if buffer: merged_sents.append(buffer)
+    if buffer:
+        if re.match(r'^[”"’\s]+$', buffer) and merged_sents:
+            merged_sents[-1] += buffer
+        else:
+            merged_sents.append(buffer)
     
     return [s for s in merged_sents if s.strip()]
 
@@ -175,7 +180,8 @@ with col1:
     uploaded_originals = st.file_uploader("上传原著 (支持 .txt)", type="txt", accept_multiple_files=True)
 
     st.header("Step 2: 输入测试文本")
-    fanfic_text = st.text_area("在此粘贴你的同人文本：", height=200, placeholder="建议粘贴 500 字以上的文本...")
+    # 【修改点】高度从 200 改为 400
+    fanfic_text = st.text_area("在此粘贴你的同人文本：", height=400, placeholder="建议粘贴 500 字以上的文本...")
 
     start_btn = st.button("🚀 开始文风分析", type="primary")
 
@@ -209,7 +215,7 @@ if start_btn:
                     if len(tokens) > 50: original_docs.append(tokens)
             
             # 3. 处理同人文本
-            preview_text = basic_clean(fanfic_text, remove_quotes=False) # [:3000] 
+            preview_text = basic_clean(fanfic_text, remove_quotes=False) 
             test_tokens = get_style_tokens(preview_text, blocklist)
             
             if len(test_tokens) < 10:
@@ -246,26 +252,22 @@ if start_btn:
                 
                 if final_score > 90:
                     st.success("""
-                    **判定：疑似作者小号（Tier S）** 
-                    😭 **救命！这是哪位神仙太太下凡？** 这简直就是原著！若不是作者的小号，建议严查是否偷了存稿硬盘。  
+                    **判定：疑似作者小号（Tier S）** 😭 **救命！这是哪位神仙太太下凡？** 这简直就是原著！若不是作者的小号，建议严查是否偷了存稿硬盘。  
                     *评价：绝赞好粮，垂直入坑，请受我一拜！*
                     """)
                 elif final_score > 75:
                     st.info("""
-                    **判定：美味（Tier A）** 
-                    😋 **好一口美味的粮！** 虽然在细节处能看出太太自己的行文习惯，但整体还原度极高。  
+                    **判定：美味（Tier A）** 😋 **好一口美味的粮！** 虽然在细节处能看出太太自己的行文习惯，但整体还原度极高。  
                     *评价：是不可多得的优质粮，这就加入书架！*
                     """)
                 elif final_score > 60:
                     st.warning("""
-                    **判定：自带滤镜的AU感（Tier B）** 
-                    🤔 **这是什么奇怪的pa吗？** 虽然还在同人的范畴里，但是私设比较多呢。  
+                    **判定：自带滤镜的AU感（Tier B）** 🤔 **这是什么奇怪的pa吗？** 虽然还在同人的范畴里，但是私设比较多呢。  
                     *评价：熟悉的陌生人，仿佛在OOC边缘试探（）*
                     """)
                 else:
                     st.error("""
-                    **判定：OOC预警 / 纯属原创（Tier C）** 
-                    😨 **确定这是同人？** 这独特的文风已经完全脱离了原著的引力圈，如果不看角色名，机器还以为误入了隔壁片场。  
+                    **判定：OOC预警 / 纯属原创（Tier C）** 😨 **确定这是同人？** 这独特的文风已经完全脱离了原著的引力圈，如果不看角色名，机器还以为误入了隔壁片场。  
                     *评价：这是极致的OOC，还是披着同人皮的原创大作？这很难评，祝您开心就好。*
                     """)
             
@@ -292,7 +294,7 @@ if start_btn:
                             ax.set_title("文风落点分布", fontproperties=my_font_prop)
                         else:
                             ax.legend(frameon=False)
-                            ax.set_title("Style Distribution")
+                            ax.set_title("Style Distribution (Font Missing)")
 
                         ax.axis('off')
                         st.pyplot(fig)
@@ -339,8 +341,9 @@ if start_btn:
                 weights = exp.as_list()
                 weight_map = {int(k): v for k, v in weights}
                 
+                # --- 计算 10% 阈值 ---
                 num_sentences = len(sentences_list)
-                top_k_count = max(int(num_sentences * 0.1), 1)
+                top_k_count = max(int(num_sentences * 0.1), 1) 
                 
                 sorted_by_val = sorted(weight_map.items(), key=lambda x: x[1], reverse=True)
                 top_pos_indices = set(k for k, v in sorted_by_val[:top_k_count] if v > 0)
@@ -350,13 +353,15 @@ if start_btn:
                 
                 highlight_indices = top_pos_indices.union(top_neg_indices)
 
-                st.write(f"### 📜 全文文风热力图 ")
+                st.write(f"### 📜 全文文风热力图")
                 st.caption("红色 = 极具原著神韵的短句；蓝色 = 明显偏离原著风格的短句；无底色 = 文风特征不明显")
                 
                 html_parts = []
                 for idx, sentence in enumerate(sentences_list):
                     weight = weight_map.get(idx, 0)
-                    if idx in highlight_indices:
+                    if re.match(r'^[“"”\s]+$', sentence):
+                        html_parts.append(f"<span>{sentence}</span>")
+                    elif idx in highlight_indices:
                         html_parts.append(get_color_html(sentence, weight))
                     else:
                         html_parts.append(f"<span>{sentence}</span>")

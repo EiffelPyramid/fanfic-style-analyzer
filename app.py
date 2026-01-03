@@ -262,7 +262,7 @@ if start_btn:
                 if len(orig_vecs) > 0:
                     try:
                         pca = PCA(n_components=2)
-                        X_all = np.vstack([orig_vecs, test_vecs])
+                        X_all = np.vstack([orig_vecs, [test_vec]])
                         X_pca = pca.fit_transform(X_all)
                         n_orig = len(orig_vecs)
 

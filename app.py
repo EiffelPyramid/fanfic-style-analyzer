@@ -61,6 +61,7 @@ def basic_clean(text):
     text = re.sub(r'第.+?章.*', '', text)
     text = re.sub(r'Chapter.*', '', text)
     text = re.sub(r'\[\d+\]|[\u2460-\u24FF]', '', text)
+    text = re.sub(r'["“”]', '', text)
     punctuation_map = {',': '，', '!': '！', '?': '？', '(': '（', ')': '）', ':': '：', ';': '；'}
     for eng_punc, chi_punc in punctuation_map.items():
         text = text.replace(eng_punc, chi_punc)
